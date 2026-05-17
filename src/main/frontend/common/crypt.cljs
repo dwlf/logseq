@@ -82,6 +82,28 @@
                 true
                 #js ["encrypt" "decrypt"]))
 
+(defn <derive-aes-key-from-password
+  "Derives an AES-GCM-256 key from a password and salt via PBKDF2-SHA256.
+   iterations defaults to 600000; pass an explicit override only for legacy compat."
+  ([password salt-uint8array]
+   (<derive-aes-key-from-password password salt-uint8array 600000))
+  ([password salt-uint8array iterations]
+   (assert (and (string? password) (instance? js/Uint8Array salt-uint8array)))
+   (p/let [password-key (.importKey subtle "raw"
+                                    (.encode (js/TextEncoder.) password)
+                                    "PBKDF2"
+                                    false
+                                    #js ["deriveKey"])]
+     (.deriveKey subtle
+                 #js {:name "PBKDF2"
+                      :salt salt-uint8array
+                      :iterations iterations
+                      :hash "SHA-256"}
+                 password-key
+                 #js {:name "AES-GCM" :length 256}
+                 true
+                 #js ["encrypt" "decrypt"]))))
+
 (defn <encrypt-private-key
   "Encrypts a private key with a password.
   Return encrypted-data which is a vector of [version, salt, iv, encrypted-private-key]"
@@ -89,20 +111,7 @@
   (assert (and (string? password) (instance? js/CryptoKey private-key)))
   (p/let [salt (js/crypto.getRandomValues (js/Uint8Array. 16))
           iv (js/crypto.getRandomValues (js/Uint8Array. 12))
-          password-key (.importKey subtle "raw"
-                                   (.encode (js/TextEncoder.) password)
-                                   "PBKDF2"
-                                   false
-                                   #js ["deriveKey"])
-          derived-key (.deriveKey subtle
-                                  #js {:name "PBKDF2"
-                                       :salt salt
-                                       :iterations 600000
-                                       :hash "SHA-256"}
-                                  password-key
-                                  #js {:name "AES-GCM" :length 256}
-                                  true
-                                  #js ["encrypt" "decrypt"])
+          derived-key (<derive-aes-key-from-password password salt)
           exported-private-key (.exportKey subtle "pkcs8" private-key)
           encrypted-private-key (.encrypt subtle
                                           #js {:name "AES-GCM" :iv iv}
@@ -128,20 +137,9 @@
            salt (js/Uint8Array. salt-data)
            iv (js/Uint8Array. iv-data)
            encrypted-private-key (js/Uint8Array. encrypted-private-key-data)
-           password-key (.importKey subtle "raw"
-                                    (.encode (js/TextEncoder.) password)
-                                    "PBKDF2"
-                                    false
-                                    #js ["deriveKey"])
-           derived-key (.deriveKey subtle
-                                   #js {:name "PBKDF2"
-                                        :salt salt
-                                        :iterations (if version>=20251210 600000 100000)
-                                        :hash "SHA-256"}
-                                   password-key
-                                   #js {:name "AES-GCM" :length 256}
-                                   true
-                                   #js ["encrypt" "decrypt"])
+           derived-key (<derive-aes-key-from-password
+                        password salt
+                        (if version>=20251210 600000 100000))
            decrypted-private-key-data (.decrypt subtle
                                                 #js {:name "AES-GCM" :iv iv}
                                                 derived-key
@@ -255,20 +253,7 @@
   (assert (and (string? text-password) (string? text)))
   (p/let [salt (js/crypto.getRandomValues (js/Uint8Array. 16))
           iv (js/crypto.getRandomValues (js/Uint8Array. 12))
-          password-key (.importKey subtle "raw"
-                                   (.encode (js/TextEncoder.) text-password)
-                                   "PBKDF2"
-                                   false
-                                   #js ["deriveKey"])
-          derived-key (.deriveKey subtle
-                                  #js {:name "PBKDF2"
-                                       :salt salt
-                                       :iterations 600000
-                                       :hash "SHA-256"}
-                                  password-key
-                                  #js {:name "AES-GCM" :length 256}
-                                  true
-                                  #js ["encrypt" "decrypt"])
+          derived-key (<derive-aes-key-from-password text-password salt)
           encoded-text (.encode (js/TextEncoder.) text)
           encrypted-text (.encrypt subtle
                                    #js {:name "AES-GCM" :iv iv}
@@ -284,20 +269,7 @@
            salt (js/Uint8Array. salt-data)
            iv (js/Uint8Array. iv-data)
            encrypted-data (js/Uint8Array. encrypted-data)
-           password-key (.importKey subtle "raw"
-                                    (.encode (js/TextEncoder.) text-password)
-                                    "PBKDF2"
-                                    false
-                                    #js ["deriveKey"])
-           derived-key (.deriveKey subtle
-                                   #js {:name "PBKDF2"
-                                        :salt salt
-                                        :iterations 600000
-                                        :hash "SHA-256"}
-                                   password-key
-                                   #js {:name "AES-GCM" :length 256}
-                                   true
-                                   #js ["encrypt" "decrypt"])
+           derived-key (<derive-aes-key-from-password text-password salt)
            decrypted-data (.decrypt subtle
                                     #js {:name "AES-GCM" :iv iv}
                                     derived-key
